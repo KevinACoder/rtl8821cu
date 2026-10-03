@@ -20,6 +20,7 @@
 #define _RECV_OSDEP_C_
 
 #include <drv_types.h>
+#include <rtw_rxdbg.h>		/* [W4-fix probe] */
 
 int rtw_os_recvframe_duplicate_skb(_adapter *padapter, union recv_frame *pcloneframe, _pkt *pskb)
 {
@@ -756,6 +757,7 @@ int rtw_recv_indicatepkt(_adapter *padapter, union recv_frame *precv_frame)
 
 	skb->len = precv_frame->u.hdr.len;
 
+	rtw_rxdbg_ind(precv_frame, skb);	/* [W4-fix probe] */
 
 	if (pattrib->eth_type == 0x888e)
 		RTW_PRINT("recv eapol packet\n");
@@ -872,3 +874,190 @@ void rtw_os_read_port(_adapter *padapter, struct recv_buf *precvbuf)
 
 }
 
+
+/* ==================================================================== */
+/* [W6] temporary RX-path counters (the W4 print probes were slimmed to  */
+/* print-free counters after the board showed their cost: the periodic   */
+/* dump disabled interrupts ~27 ms at 115200 baud).  Read via the        */
+/* rtw_rxdbg_dump() line from `wlan8821 status`; remove before ship.     */
+/* ==================================================================== */
+
+#include <rtw_rxdbg.h>
+
+unsigned int	rtw_rxdbg_frames;
+unsigned int	rtw_rxdbg_data;
+unsigned int	rtw_rxdbg_loop_extra;
+unsigned int	rtw_rxdbg_eapol;
+unsigned int	rtw_rxdbg_reuse, rtw_rxdbg_alloc_cnt, rtw_rxdbg_alloc_fail;
+unsigned int	rtw_rxdbg_c_ok, rtw_rxdbg_c_cannot, rtw_rxdbg_c_stop,
+		rtw_rxdbg_c_rearm, rtw_rxdbg_c_other, rtw_rxdbg_c_subfail,
+		rtw_rxdbg_c_badlen;
+unsigned int	rtw_rxdbg_t_runs, rtw_rxdbg_t_skbs, rtw_rxdbg_t_rxqmax,
+		rtw_rxdbg_t_pendmax;
+unsigned int	rtw_rxdbg_t_freeqmin = 0xffffffffu;
+unsigned int	rtw_rxdbg_fqin_cnt, rtw_rxdbg_fq_direct_free;
+unsigned int	rtw_rxdbg_last_comp_ms, rtw_rxdbg_last_ok_ms;
+unsigned int	rtw_rxdbg_last_frame_ms, rtw_rxdbg_last_ind_ms;
+
+void
+rtw_rxdbg_frame(struct rx_pkt_attrib *a, u8 *pbuf, s32 tl, int it)
+{
+	u8 *fc = pbuf + a->shift_sz + a->drvinfo_sz + RXDESC_SIZE;
+
+	(void)tl;
+	if (it == 0)
+	{
+		rtw_rxdbg_frames++;
+		rtw_rxdbg_last_frame_ms = (u32)jiffies;
+	}
+	else
+		rtw_rxdbg_loop_extra++;
+
+	if (fc[0] == 0 && fc[1] == 0)
+		return;	/* not data/management framing we count */
+	if ((fc[0] & 0x0c) != 0x08)
+		return;
+
+	rtw_rxdbg_data++;
+
+	{
+		u8 *llc = fc + 24 + (a->qos ? 2 : 0);
+
+		if (llc[0] == 0xaa && llc[1] == 0xaa && llc[2] == 0x03 &&
+		    llc[6] == 0x88 && llc[7] == 0x8e)
+			rtw_rxdbg_eapol++;
+	}
+}
+
+void
+rtw_rxdbg_badoff(struct rx_pkt_attrib *a, u8 *pbuf, s32 tl)
+{
+	(void)a;
+	(void)pbuf;
+	(void)tl;
+}
+
+void
+rtw_rxdbg_alloc(union recv_frame *prf, u8 *pdata, int ok)
+{
+	(void)prf;
+	(void)pdata;
+	(void)ok;
+}
+
+void
+rtw_rxdbg_conv_in(union recv_frame *prf)
+{
+	(void)prf;
+}
+
+void
+rtw_rxdbg_conv_out(union recv_frame *prf, int rmv_len, int bsnaphdr, int pull)
+{
+	(void)prf;
+	(void)rmv_len;
+	(void)bsnaphdr;
+	(void)pull;
+}
+
+void
+rtw_rxdbg_ind(union recv_frame *prf, void *skb)
+{
+	(void)prf;
+	(void)skb;
+	rtw_rxdbg_last_ind_ms = (u32)jiffies;
+}
+
+void
+rtw_rxdbg_readport(int kind, void *skb)
+{
+	(void)skb;
+	switch (kind) {
+	case RTW_RXDBG_RP_REUSE:
+		rtw_rxdbg_reuse++;
+		break;
+	case RTW_RXDBG_RP_ALLOC:
+		rtw_rxdbg_alloc_cnt++;
+		break;
+	case RTW_RXDBG_RP_ALLOC_FAIL:
+		rtw_rxdbg_alloc_fail++;
+		break;
+	default:
+		break;
+	}
+}
+
+void
+rtw_rxdbg_comp(int kind, void *pskb, void *precvbuf)
+{
+	(void)pskb;
+	(void)precvbuf;
+	rtw_rxdbg_last_comp_ms = (u32)jiffies;
+	switch (kind) {
+	case RTW_RXDBG_C_OK:
+		rtw_rxdbg_c_ok++;
+		rtw_rxdbg_last_ok_ms = rtw_rxdbg_last_comp_ms;
+		break;
+	case RTW_RXDBG_C_CANNOT:
+		rtw_rxdbg_c_cannot++;
+		break;
+	case RTW_RXDBG_C_STOPPED:
+		rtw_rxdbg_c_stop++;
+		break;
+	case RTW_RXDBG_C_REARM:
+		rtw_rxdbg_c_rearm++;
+		break;
+	case RTW_RXDBG_C_OTHER:
+		rtw_rxdbg_c_other++;
+		break;
+	case RTW_RXDBG_C_SUBFAIL:
+		rtw_rxdbg_c_subfail++;
+		break;
+	case RTW_RXDBG_C_BADLEN:
+		rtw_rxdbg_c_badlen++;
+		break;
+	default:
+		break;
+	}
+}
+
+void
+rtw_rxdbg_fq_in(void)
+{
+	rtw_rxdbg_fqin_cnt++;
+}
+
+void
+rtw_rxdbg_tasklet(int nskb, int rxq_len, int freeq_len, int pendq_len)
+{
+	if (nskb >= 0) {
+		rtw_rxdbg_t_skbs += nskb;
+		if ((u32)rxq_len > rtw_rxdbg_t_rxqmax)
+			rtw_rxdbg_t_rxqmax = (u32)rxq_len;
+		if ((u32)freeq_len < rtw_rxdbg_t_freeqmin)
+			rtw_rxdbg_t_freeqmin = (u32)freeq_len;
+		if ((u32)pendq_len > rtw_rxdbg_t_pendmax)
+			rtw_rxdbg_t_pendmax = (u32)pendq_len;
+		return;
+	}
+	rtw_rxdbg_t_runs++;
+}
+
+/* command-face readout only, never periodic */
+void
+rtw_rxdbg_dump(void)
+{
+	RTW_PRINT("RXDBG DUMP fr=%u data=%u eapol=%u loop_extra=%u | rp reuse=%u alloc=%u fail=%u | comp ok=%u can=%u stop=%u rearm=%u other=%u subfail=%u badlen=%u\n",
+		 rtw_rxdbg_frames, rtw_rxdbg_data, rtw_rxdbg_eapol,
+		 rtw_rxdbg_loop_extra,
+		 rtw_rxdbg_reuse, rtw_rxdbg_alloc_cnt, rtw_rxdbg_alloc_fail,
+		 rtw_rxdbg_c_ok, rtw_rxdbg_c_cannot, rtw_rxdbg_c_stop,
+		 rtw_rxdbg_c_rearm, rtw_rxdbg_c_other, rtw_rxdbg_c_subfail,
+		 rtw_rxdbg_c_badlen);
+	RTW_PRINT("RXDBG TASK runs=%u skbs=%u rxqmax=%u pendmax=%u freeqmin=%u fqin=%u fqfree=%u | last comp=%u ok=%u frame=%u ind=%u ms\n",
+		 rtw_rxdbg_t_runs, rtw_rxdbg_t_skbs, rtw_rxdbg_t_rxqmax,
+		 rtw_rxdbg_t_pendmax, rtw_rxdbg_t_freeqmin,
+		 rtw_rxdbg_fqin_cnt, rtw_rxdbg_fq_direct_free,
+		 rtw_rxdbg_last_comp_ms, rtw_rxdbg_last_ok_ms,
+		 rtw_rxdbg_last_frame_ms, rtw_rxdbg_last_ind_ms);
+}

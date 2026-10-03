@@ -21,6 +21,7 @@
 #include <drv_types.h>
 #include <hal_data.h>
 #include <rtw_sreset.h>
+#include <rtw_rxdbg.h>		/* [W4-fix probe] */
 
 struct rtw_async_write_data {
 	u8 data[VENDOR_CMD_MAX_DATA_LEN];
@@ -836,6 +837,8 @@ void usb_recv_tasklet(void *priv)
 	struct recv_priv	*precvpriv = &padapter->recvpriv;
 	struct recv_buf	*precvbuf = NULL;
 
+	rtw_rxdbg_tasklet(-1, 0, 0, 0);		/* [W4-fix probe] runs++ */
+
 	while (NULL != (pskb = skb_dequeue(&precvpriv->rx_skb_queue))) {
 
 		if (RTW_CANNOT_RUN(padapter)) {
@@ -846,6 +849,7 @@ void usb_recv_tasklet(void *priv)
 			if (rtw_free_skb_premem(pskb) != 0)
 			#endif /* CONFIG_PREALLOC_RX_SKB_BUFFER */
 				rtw_skb_free(pskb);
+			rtw_rxdbg_fq_direct_free++;	/* [W4-fix probe] */
 			break;
 		}
 
@@ -855,6 +859,10 @@ void usb_recv_tasklet(void *priv)
 		pskb->len = 0;
 
 		skb_queue_tail(&precvpriv->free_recv_skb_queue, pskb);
+		rtw_rxdbg_fq_in();			/* [W4-fix probe] */
+		rtw_rxdbg_tasklet(1,
+			skb_queue_len(&precvpriv->rx_skb_queue),
+			skb_queue_len(&precvpriv->free_recv_skb_queue), 0);
 
 		precvbuf = rtw_dequeue_recvbuf(&precvpriv->recv_buf_pending_queue);
 		if (NULL != precvbuf) {
@@ -877,6 +885,7 @@ void usb_read_port_complete(struct urb *purb, struct pt_regs *regs)
 			, __func__
 			, rtw_is_drv_stopped(padapter) ? "True" : "False"
 			, rtw_is_surprise_removed(padapter) ? "True" : "False");
+		rtw_rxdbg_comp(RTW_RXDBG_C_CANNOT, precvbuf->pskb, precvbuf);	/* [W4-fix probe] */
 		goto exit;
 	}
 
@@ -885,6 +894,7 @@ void usb_read_port_complete(struct urb *purb, struct pt_regs *regs)
 		if ((purb->actual_length > MAX_RECVBUF_SZ) || (purb->actual_length < RXDESC_SIZE)) {
 			RTW_INFO("%s()-%d: urb->actual_length:%u, MAX_RECVBUF_SZ:%u, RXDESC_SIZE:%u\n"
 				, __FUNCTION__, __LINE__, purb->actual_length, MAX_RECVBUF_SZ, RXDESC_SIZE);
+			rtw_rxdbg_comp(RTW_RXDBG_C_BADLEN, precvbuf->pskb, precvbuf);	/* [W4-fix probe] */
 			rtw_read_port(padapter, precvpriv->ff_hwaddr, 0, (unsigned char *)precvbuf);
 		} else {
 			rtw_reset_continual_io_error(adapter_to_dvobj(padapter));
@@ -892,6 +902,7 @@ void usb_read_port_complete(struct urb *purb, struct pt_regs *regs)
 			precvbuf->transfer_len = purb->actual_length;
 			skb_put(precvbuf->pskb, purb->actual_length);
 			skb_queue_tail(&precvpriv->rx_skb_queue, precvbuf->pskb);
+			rtw_rxdbg_comp(RTW_RXDBG_C_OK, precvbuf->pskb, precvbuf);	/* [W4-fix probe] */
 
 			#ifndef CONFIG_FIX_NR_BULKIN_BUFFER
 			if (skb_queue_len(&precvpriv->rx_skb_queue) <= 1)
@@ -914,6 +925,7 @@ void usb_read_port_complete(struct urb *purb, struct pt_regs *regs)
 		case -ENODEV:
 		case -ESHUTDOWN:
 		case -ENOENT:
+			rtw_rxdbg_comp(RTW_RXDBG_C_STOPPED, precvbuf->pskb, precvbuf);	/* [W4-fix probe] */
 			rtw_set_drv_stopped(padapter);
 			break;
 		case -EPROTO:
@@ -927,12 +939,23 @@ void usb_read_port_complete(struct urb *purb, struct pt_regs *regs)
 				pHalData->srestpriv.Wifi_Error_Status = USB_READ_PORT_FAIL;
 			}
 			#endif
+			rtw_rxdbg_comp(RTW_RXDBG_C_REARM, precvbuf->pskb, precvbuf);	/* [W4-fix probe] */
 			rtw_read_port(padapter, precvpriv->ff_hwaddr, 0, (unsigned char *)precvbuf);
 			break;
 		case -EINPROGRESS:
 			RTW_INFO("ERROR: URB IS IN PROGRESS!/n");
+			rtw_rxdbg_comp(RTW_RXDBG_C_OTHER, precvbuf->pskb, precvbuf);	/* [W4-fix probe] */
 			break;
 		default:
+			/* [W11-C2] close the silent lifecycle hole: on this
+			 * stack the codes landing here are -ETIMEDOUT /
+			 * -ENOMEM / -EIO (lkpi_usb_errno), all transient -
+			 * re-arm like the -EPROTO family instead of leaking
+			 * the recvbuf (the RX pipeline shrinks permanently
+			 * otherwise).  Bounded: the continual_io_error check
+			 * above trips surprise-removed if this repeats. */
+			rtw_rxdbg_comp(RTW_RXDBG_C_OTHER, precvbuf->pskb, precvbuf);
+			rtw_read_port(padapter, precvpriv->ff_hwaddr, 0, (unsigned char *)precvbuf);
 			break;
 		}
 	}
@@ -966,14 +989,18 @@ u32 usb_read_port(struct intf_hdl *pintfhdl, u32 addr, u32 cnt, u8 *rmem)
 		SIZE_PTR alignment = 0;
 
 		precvbuf->pskb = skb_dequeue(&precvpriv->free_recv_skb_queue);
-		if (NULL != precvbuf->pskb)
+		if (NULL != precvbuf->pskb) {
+			rtw_rxdbg_readport(RTW_RXDBG_RP_REUSE, precvbuf->pskb);	/* [W4-fix probe] */
 			goto recv_buf_hook;
+		}
 
 		#ifndef CONFIG_FIX_NR_BULKIN_BUFFER
 		precvbuf->pskb = rtw_skb_alloc(MAX_RECVBUF_SZ + RECVBUFF_ALIGN_SZ);
+		rtw_rxdbg_readport(RTW_RXDBG_RP_ALLOC, precvbuf->pskb);	/* [W4-fix probe] */
 		#endif
 
 		if (precvbuf->pskb == NULL) {
+			rtw_rxdbg_readport(RTW_RXDBG_RP_ALLOC_FAIL, NULL);	/* [W4-fix probe] */
 			if (0)
 				RTW_INFO("usb_read_port() enqueue precvbuf=%p\n", precvbuf);
 			/* enqueue precvbuf and wait for free skb */
@@ -1008,6 +1035,7 @@ recv_buf_hook:
 	if (err && err != (-EPERM)) {
 		RTW_INFO("cannot submit rx in-token(err = 0x%08x),urb_status = %d\n"
 			, err, purb->status);
+		rtw_rxdbg_comp(RTW_RXDBG_C_SUBFAIL, precvbuf->pskb, precvbuf);	/* [W4-fix probe] */
 		goto exit;
 	}
 

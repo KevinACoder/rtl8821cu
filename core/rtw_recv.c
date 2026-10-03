@@ -21,6 +21,7 @@
 
 #include <drv_types.h>
 #include <hal_data.h>
+#include <rtw_rxdbg.h>		/* [W4-fix probe] */
 
 #if defined(PLATFORM_LINUX) && defined (PLATFORM_WINDOWS)
 
@@ -2329,6 +2330,8 @@ sint wlanhdr_to_ethhdr(union recv_frame *precvframe)
 	u8	*ptr = get_recvframe_data(precvframe) ; /* point to frame_ctrl field */
 	struct rx_pkt_attrib *pattrib = &precvframe->u.hdr.attrib;
 
+	rtw_rxdbg_conv_in(precvframe);	/* [W4-fix probe] */
+
 
 	if (pattrib->encrypt)
 		recvframe_pull_tail(precvframe, pattrib->icv_len);
@@ -2420,6 +2423,9 @@ sint wlanhdr_to_ethhdr(union recv_frame *precvframe)
 			_rtw_memcpy(ptr + 12, &len, 2);
 		}
 	}
+
+	rtw_rxdbg_conv_out(precvframe, rmv_len, bsnaphdr,
+			   rmv_len - (sint)sizeof(struct ethhdr) + (bsnaphdr ? 2 : 0));	/* [W4-fix probe] */
 
 exiting:
 	return ret;

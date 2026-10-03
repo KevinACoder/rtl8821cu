@@ -145,6 +145,11 @@
 #endif
 
 
+/* [W1-0001 accounting] CONFIG_AP_MODE STAYS ON: spec section 3.2.3 listed
+ * it for trimming, but the vendor headers gate the mlme_priv AP fields
+ * (olbc/olbc_ht) while rtw_cmd.c references them unguarded - the pair was
+ * never compiled apart upstream ([FWC] 0001 and W0-L both kept it).  The
+ * AP face compiles dormant: MLME_IS_AP is runtime-false on this line. */
 #define CONFIG_AP_MODE
 #ifdef CONFIG_AP_MODE
 	/* #define CONFIG_INTERRUPT_BASED_TXBCN */ /* Tx Beacon when driver BCN_OK ,BCN_ERR interrupt occurs */
@@ -163,6 +168,8 @@
 	#define CONFIG_FIND_BEST_CHANNEL
 #endif
 
+/* [W1-0001 accounting] CONFIG_P2P STAYS ON (same evidence as AP_MODE:
+ * [FWC]/W0-L never compiled without it; dormant at runtime). */
 #define CONFIG_P2P
 #ifdef CONFIG_P2P
 	/* The CONFIG_WFD is for supporting the Wi-Fi display */
@@ -227,8 +234,11 @@
  */
 
 #ifndef CONFIG_MINIMAL_MEMORY_USAGE
-	#define CONFIG_USB_TX_AGGREGATION
-	#define CONFIG_USB_RX_AGGREGATION
+	/* [W1-0001] USB TX/RX aggregation off ([FWC] 0001 trim): RX is the fixed
+	 * recv-buf requeue chain and TX rides bulk-OUT semantics; aggregation is
+	 * a second-stage switch after the data path is proven stable. */
+	/* #define CONFIG_USB_TX_AGGREGATION */
+	/* #define CONFIG_USB_RX_AGGREGATION */
 #endif
 
 /* #define CONFIG_REDUCE_USB_TX_INT*/ /* Trade-off: Improve performance, but may cause TX URBs blocked by USB Host/Bus driver on few platforms. */
@@ -349,9 +359,18 @@
 /*
  * Debug Related Config
  */
-#define DBG	1
+/* [W1-0001] DBG 1->0 ([FWC] 0001 trim): silences the verbose per-frame
+ * debug branches; RTW_PRINT_SEL logs stay via CONFIG_RTW_DEBUG. */
+#define DBG	0
 
-#define CONFIG_PROC_DEBUG
+/* [W1-0001] CONFIG_PROC_DEBUG off (spec v2 section 3.2.3): rtw_proc.c is
+ * NOT in the RTOS compile set (linuxkpi has no procfs face - [S6] C-tier
+ * eliminated); unlike W0-L (which kept it ON because the Linux build
+ * compiled rtw_proc.c), the RTOS build must go without it.  The
+ * rtw_sta_linking_test helpers live in core/rtw_debug.c (not rtw_proc.c),
+ * so there is no link gap; the residual adapter-proc and drv-proc
+ * references are stubbed by [W1-0004]. */
+/* #define CONFIG_PROC_DEBUG */
 #define DBG_CONFIG_ERROR_DETECT
 
 /*#define DBG_CONFIG_ERROR_DETECT_INT*/
@@ -361,8 +380,10 @@
 
 /*#define DBG_IO*/
 /*#define DBG_DELAY_OS*/
+/* [W1-0001] DBG_MEM_ALLOC off ([FWC] 0001 trim): the dbg_rtw_malloc wrapper
+ * family lives in os_dep/linux debug code outside the compile set. */
 #ifndef DBG_MEM_ALLOC
-#define DBG_MEM_ALLOC
+/* #define DBG_MEM_ALLOC */
 #endif
 /*#define DBG_MEMORY_LEAK*/
 /*#define DBG_IOCTL*/

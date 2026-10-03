@@ -294,7 +294,11 @@ struct rtw_usb_drv usb_drv = {
 #endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 19))
-	.usbdrv.drvwrap.driver.shutdown = rtw_dev_shutdown,
+	/* [W1-0003] The old drvwrap ladder is flattened to the modern
+	 * `.usbdrv.driver.shutdown` shape (W0L-S8, board-proven on 7.3);
+	 * linuxkpi's struct usb_driver carries a `struct device_driver driver`
+	 * member so this initializer stays byte-identical to the W0-L form. */
+	.usbdrv.driver.shutdown = rtw_dev_shutdown,
 #else
 	.usbdrv.driver.shutdown = rtw_dev_shutdown,
 #endif
@@ -1632,6 +1636,21 @@ static void __exit rtw_drv_halt(void)
 
 module_init(rtw_drv_entry);
 module_exit(rtw_drv_halt);
+
+/* [W1-0002] Export shells for the RTOS consumer build ([FWC] 0002 lineage,
+ * v2 spec §3.2.3): module_init/module_exit are no-op'd by linuxkpi, so the
+ * adapter attach path calls rtl8821cu_rtos_init() explicitly - drv_registered
+ * handling, usb_register and the init sequence stay byte-identical to the
+ * Linux module-load path. */
+int rtl8821cu_rtos_init(void)
+{
+	return rtw_drv_entry();
+}
+
+void rtl8821cu_rtos_deinit(void)
+{
+	rtw_drv_halt();
+}
 
 #ifdef CONFIG_INTEL_PROXIM
 _adapter  *rtw_usb_get_sw_pointer(void)

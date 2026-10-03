@@ -112,3 +112,16 @@ static void __exit rtw_mem_exit(void)
 
 module_init(rtw_mem_init);
 module_exit(rtw_mem_exit);
+
+/* [W1-0002] Mem seeding shell ([FWC] 0002 lineage): with module_init a no-op,
+ * the adapter attach path calls rtl8821cu_mem_init_rtos() to run the same
+ * prealloc-skb seeding the Linux module loader would have run. */
+int rtl8821cu_mem_init_rtos(void)
+{
+	return rtw_mem_init();
+}
+
+void rtl8821cu_mem_deinit_rtos(void)
+{
+	rtw_mem_exit();
+}

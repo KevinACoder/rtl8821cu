@@ -34,6 +34,19 @@ MODULE_DESCRIPTION("Realtek Wireless Lan Driver");
 MODULE_AUTHOR("Realtek Semiconductor Corp.");
 MODULE_VERSION(DRIVERVERSION);
 
+/* [W1-0002] rtw_ioctl link stub ([FWC] 0002 lineage): ioctl_linux.c is not in
+ * the RTOS compile set (spec §3.2.3 - wext/ioctl face not built), but the
+ * net_device_ops tables in this file reference rtw_ioctl under the
+ * CONFIG_AP_MODE-family gates.  With AP_MODE off they vanish; the stub keeps
+ * the link closed if any reference survives, matching the [FWC] shape. */
+int rtw_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
+{
+	(void)netdev;
+	(void)ifr;
+	(void)cmd;
+	return -EOPNOTSUPP;
+}
+
 /* module param defaults */
 int rtw_chip_version = 0x00;
 int rtw_rfintfs = HWPI;
@@ -95,11 +108,13 @@ module_param(rtw_dynamic_agg_enable, int, 0644);
 
 /* set log level when inserting driver module, default log level is _DRV_INFO_ = 4,
 * please refer to "How_to_set_driver_debug_log_level.doc" to set the available level.
-*/
+* [W7 print-clean 2026-10-03] RTOS default _DRV_WARNING_: the RTW_INFO chatter
+ * (ramask/FW/EEPROM/ack_tx_done, ~10 lines/10 s at idle) drowned the console;
+ * runtime-tunable via `wlan8821 dbg <1-10>` (level 8 = old behavior). */
 #ifdef RTW_LOG_LEVEL
 	uint rtw_drv_log_level = (uint)RTW_LOG_LEVEL; /* from Makefile */
 #else
-	uint rtw_drv_log_level = _DRV_INFO_;
+	uint rtw_drv_log_level = _DRV_WARNING_;
 #endif
 module_param(rtw_drv_log_level, uint, 0644);
 MODULE_PARM_DESC(rtw_drv_log_level, "set log level when insert driver module, default log level is _DRV_INFO_ = 4");

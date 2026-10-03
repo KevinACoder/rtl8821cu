@@ -570,6 +570,15 @@ static void free_halmac_event(struct dvobj_priv *d, HALMAC_FEATURE_ID id)
 
 	sctx = d->hmpriv.indicator[id].sctx;
 	d->hmpriv.indicator[id].sctx = NULL;
+	/* [RTOS] the completion embedded in the sctx registers a kernel
+	 * object at init; release it before the sctx memory is freed.
+	 * On Linux init_completion is a plain struct init and this pairing
+	 * is a no-op; on the RTOS port the created-object chain keeps a
+	 * zombie node in freed memory otherwise (W3 board forensics: the
+	 * DUMP_LOGICAL_EFUSE sctx poisoned the ThreadX created-semaphore
+	 * chain and the next completion create faulted on its dedup walk).
+	 * Map: _rtw_deinit_completion == lkpi_completion_deinit. */
+	_rtw_deinit_completion(&sctx->done);
 	rtw_mfree((u8 *)sctx, sizeof(*sctx));
 }
 

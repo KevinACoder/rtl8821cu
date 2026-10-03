@@ -383,7 +383,10 @@ u32 rtl8821c_read_rf_reg(PADAPTER adapter, u8 path, u32 addr, u32 mask)
 
 	val = config_phydm_read_rf_reg_8821c(phydm, path, addr, mask);
 	if (!config_phydm_read_rf_check_8821c(val))
-		RTW_INFO(FUNC_ADPT_FMT ": read RF reg path=%d addr=0x%x mask=0x%x FAIL!\n",
+		/* [W7 print-clean] ERR not INFO: this is the chip-wedge evidence
+		 * line (RF read-back mismatch after the RX-death incident) and
+		 * must survive the WARNING default log level */
+		RTW_ERR(FUNC_ADPT_FMT ": read RF reg path=%d addr=0x%x mask=0x%x FAIL!\n",
 			 FUNC_ADPT_ARG(adapter), path, addr, mask);
 	return val;
 }
@@ -400,7 +403,7 @@ void rtl8821c_write_rf_reg(PADAPTER adapter, u8 path, u32 addr, u32 mask, u32 va
 
 	ret = config_phydm_write_rf_reg_8821c(phydm, path, addr, mask, val);
 	if (_FALSE == ret)
-		RTW_INFO(FUNC_ADPT_FMT ": write RF reg path=%d addr=0x%x mask=0x%x val=0x%x FAIL!\n",
+		RTW_ERR(FUNC_ADPT_FMT ": write RF reg path=%d addr=0x%x mask=0x%x val=0x%x FAIL!\n",
 			 FUNC_ADPT_ARG(adapter), path, addr, mask, val);
 
 }

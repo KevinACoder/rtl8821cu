@@ -23,6 +23,7 @@
 #include <hal_data.h>			/* HAL_DATA_TYPE */
 #include "../../hal_halmac.h"		/* RX desc */
 #include "../rtl8821c.h"		/* rtl8821c_query_rx_desc, rtl8821c_c2h_handler_no_io() */
+#include <rtw_rxdbg.h>			/* [W4-fix probe] */
 
 int rtl8821cu_init_recv_priv(PADAPTER padapter)
 {
@@ -55,6 +56,8 @@ static u8 recvbuf2recvframe_proccess_normal_rx
 	}
 
 	recvframe_put(precvframe, pattrib->pkt_len);
+	rtw_rxdbg_alloc(precvframe,
+		(pbuf + pattrib->shift_sz + pattrib->drvinfo_sz + RXDESC_SIZE), 1);	/* [W4-fix probe] */
 
 	if (pattrib->physt)
 		pphy_status = (pbuf + RXDESC_OFFSET);
@@ -85,6 +88,7 @@ int recvbuf2recvframe(PADAPTER padapter, void *ptr)
 	struct recv_priv *precvpriv = &padapter->recvpriv;
 	_queue *pfree_recv_queue = &precvpriv->free_recv_queue;
 	_pkt *pskb;
+	int rxdbg_it = 0;		/* [W4-fix probe] */
 
 #ifdef CONFIG_USE_USB_BUFFER_ALLOC_RX
 	pskb = NULL;
@@ -117,6 +121,8 @@ int recvbuf2recvframe(PADAPTER padapter, void *ptr)
 
 		pattrib = &precvframe->u.hdr.attrib;
 
+		rtw_rxdbg_frame(pattrib, pbuf, transfer_len, rxdbg_it++);	/* [W4-fix probe] */
+
 		if ((padapter->registrypriv.mp_mode == 0) && ((pattrib->crc_err) || (pattrib->icv_err))) {
 			/* RTW_INFO("%s: RX Warning! crc_err=%d icv_err=%d, skip!\n", __func__, pattrib->crc_err, pattrib->icv_err); */
 			RTW_INFO("%s: RX Warning! crc_err=%d icv_err=%d, skip!\n", __func__, pattrib->crc_err, pattrib->icv_err);
@@ -132,6 +138,7 @@ int recvbuf2recvframe(PADAPTER padapter, void *ptr)
 			/*	, __func__, __LINE__, pattrib->pkt_len, pkt_offset, transfer_len); */
 			RTW_INFO("%s()-%d: RX Warning!,pkt_len<=0(%d) or pkt_offset(%d)> transfer_len(%d)\n"
 				, __func__, __LINE__, pattrib->pkt_len, pkt_offset, transfer_len);
+			rtw_rxdbg_badoff(pattrib, pbuf, transfer_len);	/* [W4-fix probe] */
 			if (pkt_offset > transfer_len)
 				/* RTW_INFO("%s()-%d: RX Warning!,RXDESC_SIZE(%d), drvinfo_sz(%d), shift_sz(%d),pkt_len(%d)\n" */
 				/*	, __func__, __LINE__, RXDESC_SIZE, pattrib->drvinfo_sz, pattrib->shift_sz, pattrib->pkt_len); */
