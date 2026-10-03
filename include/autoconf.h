@@ -351,6 +351,8 @@
  */
 #define DBG	1
 
+/* [W0L-S11-REV] PROC_DEBUG stays ON: rtw_proc.c is modern-proc_create (compiles on 7.3),
+ * and the whole rtw_debug.h (incl. non-proc test hooks) is inside this gate */
 #define CONFIG_PROC_DEBUG
 #define DBG_CONFIG_ERROR_DETECT
 
