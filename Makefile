@@ -65,7 +65,9 @@ CONFIG_RTW_ADAPTIVITY_MODE = normal
 CONFIG_SIGNAL_SCALE_MAPPING = n
 CONFIG_80211W = n
 CONFIG_REDUCE_TX_CPU_LOADING = n
-CONFIG_BR_EXT = y
+# [W0L-M3] BR_EXT n: rtw_br_ext.c includes <net/ipx.h>, IPX was removed from the kernel since 5.x
+#   (IPX/NetBEUI bridging tunnel, not needed for STA baseline; RTOS trim set also does not include it)
+CONFIG_BR_EXT = n
 CONFIG_TDLS = n
 CONFIG_WIFI_MONITOR = n
 CONFIG_MCC_MODE = n
@@ -168,6 +170,11 @@ HCI_NAME = pci
 endif
 
 
+# [W0L-M2] wext 路径裁剪（判据 W0-L 最小 patch 面）：ioctl_cfg80211/wifi_regd/rtw_cfgvendor
+#   属 cfg80211 栈（配合 W0L-M1 滤掉的 -DCONFIG_IOCTL_CFG80211）。
+#   [W0L-M2-REV] rtw_proc.o 恢复编入：实测其 create_proc_entry 仅在 <2.6.26 死分支（:79），
+#   现代分支用 proc_create_data 可编 7.3；且整个 rtw_debug.h 罩在 CONFIG_PROC_DEBUG 门内，
+#   关掉它会连带失去非 proc 测试钩子声明（rtw_sta_linking_test_* 等）。
 _OS_INTFS_FILES :=	os_dep/osdep_service.o \
 			os_dep/linux/os_intfs.o \
 			os_dep/linux/$(HCI_NAME)_intf.o \
@@ -176,9 +183,6 @@ _OS_INTFS_FILES :=	os_dep/osdep_service.o \
 			os_dep/linux/xmit_linux.o \
 			os_dep/linux/mlme_linux.o \
 			os_dep/linux/recv_linux.o \
-			os_dep/linux/ioctl_cfg80211.o \
-			os_dep/linux/rtw_cfgvendor.o \
-			os_dep/linux/wifi_regd.o \
 			os_dep/linux/rtw_android.o \
 			os_dep/linux/rtw_proc.o
 
@@ -819,6 +823,12 @@ endif
 ifeq ($(CONFIG_RTL8821C), y)
 include $(TopDIR)/rtl8821c.mk
 endif
+
+# [W0L-M5] rtl8821c.mk force-enables CONFIG_MP_VHT_HW_TX_MODE=y (chip-specific mk override),
+#   pulling in rtw_mp.c rtfloor(float) — kernel arm64 builds modules with -mgeneral-regs-only,
+#   FP types are a hard error. MP VHT hardware-TX-timing is a factory-test feature; W0-L
+#   baseline (and the RTOS trim set) does not need it.
+CONFIG_MP_VHT_HW_TX_MODE = n
 
 ########### AUTO_CFG  #################################
 
@@ -1830,6 +1840,19 @@ endif
 
 ifneq ($(KERNELRELEASE),)
 
+# [W0L-M1] kbuild>=5.16 deleted EXTRA_CFLAGS: carry the flags accumulated in the common section of this tree through ccflags-y,
+#   and filter out -DCONFIG_IOCTL_CFG80211/-DRTW_USE_CFG80211_STA_EVENT => full stack via wext (cfg80211 units are simultaneously removed in W0L-M2).
+#   Also filter -mhard-float/-mfloat-abi=hard and -DCONFIG_MP_VHT_HW_TX_MODE: the latter is force-added into EXTRA_CFLAGS by rtl8821c.mk,
+#   dragging in rtw_mp.c rtfloor(float), which conflicts with the kernel arm64 -mgeneral-regs-only (see also the make variable override in W0L-M5).
+#   Ledger: runs/20261002-w0l-rtl8821cu-linux/PATCH-LEDGER.md
+ccflags-y := $(filter-out -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT -mhard-float -mfloat-abi=hard -DCONFIG_MP_VHT_HW_TX_MODE,$(EXTRA_CFLAGS))
+# [W0L-M6-REV] Do NOT define CONFIG_WIRELESS_EXT here: it is a Kconfig ABI macro that
+#   gates struct net_device members (netdevice.h:2297 wireless_handlers) — defining it
+#   module-side while the kernel is built without it is a struct layout mismatch (Oops
+#   at probe, dst=garbage). The kernel is rebuilt with CONFIG_WIRELESS_EXT=y instead
+#   (lab Kconfig: CFG80211_WEXT select WIRELESS_EXT), so the macro arrives naturally
+#   via the kernel's autoconf.h and the tree's `#ifdef CONFIG_WIRELESS_EXT` works.
+
 rtk_core :=	core/rtw_cmd.o \
 		core/rtw_security.o \
 		core/rtw_debug.o \
@@ -1850,7 +1873,6 @@ rtk_core :=	core/rtw_cmd.o \
 		core/rtw_xmit.o	\
 		core/rtw_p2p.o \
 		core/rtw_tdls.o \
-		core/rtw_br_ext.o \
 		core/rtw_iol.o \
 		core/rtw_sreset.o \
 		core/rtw_btcoex_wifionly.o \
