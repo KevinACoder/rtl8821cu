@@ -34,6 +34,11 @@
 /* #include <linux/smp_lock.h> */
 #include <linux/netdevice.h>
 #include <linux/skbuff.h>
+/* [W0L-S6] 7.x header pruning: timer APIs (from_timer/del_timer_sync/mod_timer) no longer
+ * leak in transitively via netdevice/module — include explicitly */
+#include <linux/timer.h>
+/* [W0L-S8] same pruning class: strncpy et al (linux/string.h) */
+#include <linux/string.h>
 #include <linux/circ_buf.h>
 #include <asm/uaccess.h>
 #include <asm/byteorder.h>
@@ -306,7 +311,9 @@ __inline static void rtw_list_delete(_list *plist)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
 static void legacy_timer_emu_func(struct timer_list *t)
 {
-	struct legacy_timer_emu *lt = from_timer(lt, t, t);
+	struct legacy_timer_emu *lt;
+	/* [W0L-S6] from_timer renamed timer_container_of in 6.16 (include/linux/timer.h:132) */
+	lt = timer_container_of(lt, t, t);
 	lt->function(lt->data);
 }
 #endif
@@ -335,7 +342,8 @@ __inline static void _set_timer(_timer *ptimer, u32 delay_time)
 __inline static void _cancel_timer(_timer *ptimer, u8 *bcancelled)
 {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
-	del_timer_sync(&ptimer->t);
+	/* [W0L-S6] del_timer_sync renamed timer_delete_sync in 6.15 (timer.h:166) */
+	timer_delete_sync(&ptimer->t);
 #else
 	del_timer_sync(ptimer);
 #endif
