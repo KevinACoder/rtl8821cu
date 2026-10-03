@@ -9592,7 +9592,8 @@ ParseQualifiedString(
 	while ((c = In[(*Start)++]) != RightQualifier)
 		; /* find ']' */
 	j = (*Start) - 2;
-	strncpy((char *)Out, (const char *)(In + i), j - i + 1);
+	/* [W0L-S9] exact-copy semantics = memcpy (caller pre-zeros Out) */
+	_rtw_memcpy((void *)Out, (const void *)(In + i), j - i + 1);
 
 	return _TRUE;
 }

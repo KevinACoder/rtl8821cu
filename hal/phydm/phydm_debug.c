@@ -2967,7 +2967,8 @@ phydm_fw_trace_handler(
 		return;
 	}
 
-	strncpy((char *)&(p_dm_odm->fw_debug_trace[p_dm_odm->c2h_cmd_start]), (char *)&cmd_buf[1], (cmd_len - 1));
+	/* [W0L-S9] exact-copy = memcpy (NUL handled by caller below) */
+	odm_move_memory(p_dm_odm, &(p_dm_odm->fw_debug_trace[p_dm_odm->c2h_cmd_start]), &cmd_buf[1], (cmd_len - 1));
 	p_dm_odm->c2h_cmd_start += (cmd_len - 1);
 	p_dm_odm->fw_buff_is_enpty = false;
 
