@@ -1190,18 +1190,8 @@ unsigned int rtw_classify8021d(struct sk_buff *skb)
 }
 
 
-static u16 rtw_select_queue(struct net_device *dev, struct sk_buff *skb
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
-  #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0)
-	  , void *accel_priv
-  #else
-    , struct net_device *sb_dev
-  #endif
-  #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
-	  , select_queue_fallback_t fallback
-  #endif
-#endif
-)
+/* [W0L-S8] ndo_select_queue: fallback param removed in 5.2, modern = (dev, skb, sb_dev) */
+static u16 rtw_select_queue(struct net_device *dev, struct sk_buff *skb, struct net_device *sb_dev)
 {
 	_adapter	*padapter = rtw_netdev_priv(dev);
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
@@ -1302,7 +1292,8 @@ int rtw_ndev_init(struct net_device *dev)
 
 	RTW_PRINT(FUNC_ADPT_FMT" if%d mac_addr="MAC_FMT"\n"
 		, FUNC_ADPT_ARG(adapter), (adapter->iface_id + 1), MAC_ARG(dev->dev_addr));
-	strncpy(adapter->old_ifname, dev->name, IFNAMSIZ);
+	/* [W0L-S9] strncpy removed from kernel 6.8+ */
+	strscpy(adapter->old_ifname, dev->name, IFNAMSIZ);
 	adapter->old_ifname[IFNAMSIZ - 1] = '\0';
 	rtw_adapter_proc_init(dev);
 
@@ -1501,7 +1492,8 @@ int rtw_os_ndev_register(_adapter *adapter, const char *name)
 	u8 rtnl_lock_needed = rtw_rtnl_lock_needed(dvobj);
 
 #ifdef CONFIG_RTW_NAPI
-	netif_napi_add(ndev, &adapter->napi, rtw_recv_napi_poll, RTL_NAPI_WEIGHT);
+	/* [W0L-S5] netif_napi_add weight arg removed in 6.12 */
+	netif_napi_add(ndev, &adapter->napi, rtw_recv_napi_poll);
 #endif /* CONFIG_RTW_NAPI */
 
 #if defined(CONFIG_IOCTL_CFG80211)
@@ -3335,9 +3327,8 @@ static int route_dump(u32 *gw_addr , int *gw_index)
 		struct rtgenmsg g;
 	} req;
 	struct msghdr msg;
-	struct iovec iov;
+	struct kvec iov;	/* [W0L-S3] iovec+iov_iter_init removed in 5.14; kvec form */
 	struct sockaddr_nl nladdr;
-	mm_segment_t oldfs;
 	char *pg;
 	int size = 0;
 
@@ -3361,29 +3352,13 @@ static int route_dump(u32 *gw_addr , int *gw_index)
 
 	msg.msg_name = &nladdr;
 	msg.msg_namelen = sizeof(nladdr);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
-	/* referece:sock_xmit in kernel code
-	 * WRITE for sock_sendmsg, READ for sock_recvmsg
-	 * third parameter for msg_iovlen
-	 * last parameter for iov_len
-	 */
-	iov_iter_init(&msg.msg_iter, WRITE, &iov, 1, sizeof(req));
-#else
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-#endif
+	/* [W0L-S3] sock_sendmsg needs no addr-limit flip since 5.x */
+	iov_iter_kvec(&msg.msg_iter, ITER_SOURCE, &iov, 1, sizeof(req));
 	msg.msg_control = NULL;
 	msg.msg_controllen = 0;
 	msg.msg_flags = MSG_DONTWAIT;
 
-	oldfs = get_fs();
-	set_fs(KERNEL_DS);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
 	err = sock_sendmsg(sock, &msg);
-#else
-	err = sock_sendmsg(sock, &msg, sizeof(req));
-#endif
-	set_fs(oldfs);
 
 	if (err < 0)
 		goto out_sock;
@@ -3404,14 +3379,9 @@ restart:
 		iov.iov_base = pg;
 		iov.iov_len = PAGE_SIZE;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
-		iov_iter_init(&msg.msg_iter, READ, &iov, 1, PAGE_SIZE);
-#endif
-
-		oldfs = get_fs();
-		set_fs(KERNEL_DS);
-		err = sock_recvmsg(sock, &msg, PAGE_SIZE, MSG_DONTWAIT);
-		set_fs(oldfs);
+		/* [W0L-S3] recv side: ITER_DEST + 3-arg sock_recvmsg (net.h:307) */
+		iov_iter_kvec(&msg.msg_iter, ITER_DEST, &iov, 1, PAGE_SIZE);
+		err = sock_recvmsg(sock, &msg, MSG_DONTWAIT);
 
 		if (err < 0)
 			goto out_sock_pg;
@@ -3472,24 +3442,13 @@ done:
 
 		msg.msg_name = &nladdr;
 		msg.msg_namelen = sizeof(nladdr);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
-		iov_iter_init(&msg.msg_iter, WRITE, &iov, 1, sizeof(req));
-#else
-		msg.msg_iov = &iov;
-		msg.msg_iovlen = 1;
-#endif
+		/* [W0L-S3] kvec form */
+		iov_iter_kvec(&msg.msg_iter, ITER_SOURCE, &iov, 1, sizeof(req));
 		msg.msg_control = NULL;
 		msg.msg_controllen = 0;
 		msg.msg_flags = MSG_DONTWAIT;
 
-		oldfs = get_fs();
-		set_fs(KERNEL_DS);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
 		err = sock_sendmsg(sock, &msg);
-#else
-		err = sock_sendmsg(sock, &msg, sizeof(req));
-#endif
-		set_fs(oldfs);
 
 		if (err > 0)
 			goto restart;
