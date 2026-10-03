@@ -626,7 +626,8 @@ int rtw_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 		goto exit;
 	}
 
-	if (!access_ok(VERIFY_READ, priv_cmd.buf, priv_cmd.total_len)) {
+	/* [W0L-S8] VERIFY_READ removed in 5.x; access_ok(ptr, len) is 2-arg bool now */
+	if (!access_ok(priv_cmd.buf, priv_cmd.total_len)) {
 		RTW_INFO("%s: failed to access memory\n", __FUNCTION__);
 		ret = -EFAULT;
 		goto exit;
